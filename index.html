@@ -145,8 +145,6 @@ main{padding-top:14px}
 .tich input:active+span{transform:scale(.9)}
 .tich input:focus-visible+span{outline:2.5px solid var(--gao);outline-offset:2px}
 .mon-ten{grid-area:ten;min-width:0}
-.chon-retail{width:100%;font-weight:700;border:1.5px solid transparent;background:rgba(255,255,255,.7);border-radius:10px;padding:6px 8px;min-height:40px;cursor:pointer}
-.chon-retail:hover,.chon-retail:focus{border-color:var(--vien);background:#fff}
 .toa-ghi{display:block;font-size:12px;color:var(--mo);margin:2px 0 0 8px}
 .gia,.tron{min-width:0}
 .gia{grid-area:gia}.tron{grid-area:tron}
@@ -154,11 +152,8 @@ main{padding-top:14px}
 .cap{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
 .cu{color:var(--mo);text-decoration:line-through;font-size:12.5px}
 .moi-gia{font-weight:700;color:var(--do)}
-.ten-khoa{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px}
+.ten-khoa{display:flex;align-items:center;min-height:40px;padding:0 8px}
 .ten-khoa b{font-size:15px;line-height:1.3}
-.nut-doi{flex:none;border:1px solid var(--vien);background:#fff;color:var(--xanh);border-radius:8px;padding:4px 11px;min-height:32px;font-size:12.5px;font-weight:600;cursor:pointer;transition:transform .08s}
-.nut-doi:active{transform:scale(.95)}
-@media (hover:hover){.nut-doi:hover{background:#f4efe2}}
 .lai{grid-area:lai;font-size:12.5px}
 .lai b{font-variant-numeric:tabular-nums}
 .lai.du b{color:var(--luc)}.lai.hut b{color:var(--vang)}.lai.lo b{color:var(--do)}
@@ -446,7 +441,7 @@ async function goi(payload) {
 /* ══════════════════ dữ liệu ══════════════════ */
 let DL = null;          // {retail, cauHinh, bietDanh, canhBao, thoiGian}
 let BD = {};            // boDau(cách viết) → tên Retail
-let DONG = [];          // [{ten, sl, donGia, chot}] — chot: mặt hàng Retail bạn tự chọn
+let DONG = [];          // [{ten, sl, donGia}] — muốn đổi mặt hàng thì gõ lại tên ở màn 1
 let KQ = [];            // kết quả đối chiếu (màn 2)
 let CHON = new Set();   // chỉ số dòng toa được tích để ghi
 let man = 1, dangGhi = false, lanTai = 0;
@@ -519,7 +514,6 @@ function diemGiong(t, g) {
 }
 function khop(d) {
   if (!DL) return null;
-  if (d.chot) { const r = timRetail(d.chot); if (r) return { r, chac: true, tuChon: true }; }
   if (/^\?+$/.test(String(d.ten || '').trim())) return { chuaDoc: true };   // Claude không đọc được tên
   const t = boDau(d.ten);
   if (!t) return null;
@@ -528,19 +522,6 @@ function khop(d) {
   const [nhat, nhi] = bang;
   if (!nhat || nhat.d < 28) return null;
   return { r: nhat.r, ngo: nhat.d < 50 || (nhi && nhat.d - nhi.d < 12) };
-}
-/* Dạy biệt danh lên Sheet — dùng chung mọi máy */
-function day(viet, retail) {
-  viet = String(viet || '').trim();
-  const k = boDau(viet);
-  if (!k || k === '?' || k === boDau(retail) || boDau(BD[k]) === boDau(retail)) return;
-  BD[k] = retail;
-  const cu = (DL.bietDanh || []).find(b => boDau(b.viet) === k);
-  if (cu) cu.retail = retail; else DL.bietDanh.push({ viet, retail });
-  const gui = () => goi({ hanhDong: 'hocBietDanh', viet, retail });   // gửi lại vô hại: chỉ sửa đúng dòng đó
-  gui().catch(e => e instanceof LoiDuongTruyen ? ngu(800).then(gui) : Promise.reject(e))
-    .then(r => bao(r.ok ? `Đã nhớ: “${viet}” = ${retail}` : 'Chưa lưu được biệt danh: ' + r.loi))
-    .catch(() => bao('Chưa lưu được biệt danh — mất mạng?'));
 }
 /* Biệt danh các bản cũ lưu riêng trong máy → chuyển lên Sheet một lần */
 async function chuyenBietDanhCu() {
@@ -576,7 +557,7 @@ function phucHoiToa() {
     const d = JSON.parse(localStorage.getItem(KHOA_TOA) || 'null');
     if (!d || !Array.isArray(d.dong) || !d.dong.length) return false;
     if (d.luc && Date.now() - d.luc > GIU_TOA_MS) { xoaToaLuu(); return false; }
-    DONG = d.dong.slice(0, TOI_DA_DONG).map(x => ({ ten: x.ten || '', sl: x.sl ?? '', donGia: x.donGia ?? '', ...(x.chot ? { chot: x.chot } : {}) }));
+    DONG = d.dong.slice(0, TOI_DA_DONG).map(x => ({ ten: x.ten || '', sl: x.sl ?? '', donGia: x.donGia ?? '' }));
     if (d.tong) $('#tong-toa').value = d.tong;
     return DONG.some(x => !laTrong(x));
   } catch { return false; }
@@ -628,7 +609,7 @@ $('#ds-dong').addEventListener('input', e => {
   const o = e.target, el = o.closest('.dong'); if (!el || !o.dataset.k) return;
   const i = +el.dataset.i;
   DONG[i][o.dataset.k] = o.value;
-  if (o.dataset.k === 'ten') { delete DONG[i].chot; veNhan(i); } else veThanhTien(i);
+  if (o.dataset.k === 'ten') veNhan(i); else veThanhTien(i);
   if (i === DONG.length - 1 && !laTrong(DONG[i]) && DONG.length < TOI_DA_DONG) {
     DONG.push(dongTrong());
     $('#ds-dong').insertAdjacentHTML('beforeend', htmlDong(DONG[DONG.length - 1], DONG.length - 1));
@@ -726,11 +707,11 @@ function doiChieu() {
     const trangThai = !doiGia ? 'giu' : (glt !== r.giaLamTron ? 'do' : 'xanh');
     const nhay = r.giaNhapSi ? (gia - r.giaNhapSi) / r.giaNhapSi : 0;
     const ly = [];
-    if (k.ngo) ly.push('Khớp tên chưa chắc');
+    if (k.ngo) ly.push('Khớp tên chưa chắc — nếu sai, bấm ← Sửa toa gõ lại đúng tên');
     if (nguong && Math.abs(nhay) * 100 >= nguong) ly.push(`Giá ${nhay > 0 ? 'tăng' : 'giảm'} ${Math.round(Math.abs(nhay) * 100)}% so với lần trước`);
     if (daGap[r.ten] !== undefined && trangThai !== 'giu') ly.push('Trùng mặt hàng với dòng khác — chỉ ghi được 1 dòng');
     if (daGap[r.ten] === undefined) daGap[r.ten] = i;
-    return { d, i, gia, r, gnl, glt, trangThai, lai: gnl ? glt / gnl - 1 : 0, ly, ngo: !!k.ngo };
+    return { d, i, gia, r, gnl, glt, trangThai, lai: gnl ? glt / gnl - 1 : 0, ly };
   });
 }
 function chonMacDinh() { CHON = new Set(KQ.filter(x => ghiDuoc(x) && !x.ly.length).map(x => x.i)); }
@@ -743,10 +724,6 @@ function tinhLai(iVuaSua) {
   veKiemTra();
 }
 
-function chonRetail(i, ten, rong) {
-  return `<select class="chon-retail" data-retail="${i}" aria-label="Mặt hàng Retail">${rong ? '<option value="">Chọn mặt hàng…</option>' : ''}${DL.retail.map(r =>
-    `<option ${r.ten === ten ? 'selected' : ''}>${thoat(r.ten)}</option>`).join('')}</select>`;
-}
 function capGia(cu, moi) {
   const doi = cu !== moi;
   return `<div class="cap">${doi ? `<span class="cu">${dinh(cu)}</span>` : ''}<span class="${doi ? 'moi-gia' : ''}">${dinh(moi)}</span></div>`;
@@ -757,8 +734,7 @@ function htmlMon(x) {
   const chuLai = x.lai <= 0 ? 'Lỗ' : x.lai < ln - 0.005 ? 'Hụt lãi' : 'Lãi thực';
   return `<div class="mon ${x.trangThai}${x.ly.length ? ' can-xem' : ''}${chon ? '' : ' bo'}" data-i="${i}">
     <label class="tich"><input type="checkbox" data-chon="${i}" ${chon ? 'checked' : ''} aria-label="Ghi ${thoat(r.ten)}"><span></span></label>
-    <div class="mon-ten">${x.ngo ? chonRetail(i, r.ten)   /* khớp chưa chắc → mở sẵn ô chọn */
-      : `<div class="ten-khoa"><b>${thoat(r.ten)}</b><button class="nut-doi" data-doi="${i}" aria-label="Chọn mặt hàng Retail khác cho dòng này">Đổi</button></div>`}<span class="toa-ghi">Toa: ${thoat(d.ten)} · ${thoat(d.sl || '?')} × ${dinh(x.gia)}</span></div>
+    <div class="mon-ten"><div class="ten-khoa"><b>${thoat(r.ten)}</b></div><span class="toa-ghi">Toa: ${thoat(d.ten)} · ${thoat(d.sl || '?')} × ${dinh(x.gia)}</span></div>
     <div class="gia"><span class="nhan-o">Giá nhập sỉ</span>${capGia(r.giaNhapSi, x.gia)}</div>
     <div class="tron"><span class="nhan-o">Giá làm tròn</span>${capGia(r.giaLamTron, x.glt)}</div>
     <div class="lai ${lop}"><span class="nhan-o" style="display:inline">${chuLai} </span><b>${phanTram(x.lai)}</b></div>
@@ -781,8 +757,8 @@ function veKiemTra() {
   const giu = KQ.filter(x => x.trangThai === 'giu'), moi = KQ.filter(x => x.trangThai === 'moi');
   let h = '';
   if (moi.length) h += `<details class="gap" open><summary>Hàng mới (${moi.length}) — chưa có trong Retail</summary>
-    ${moi.map(x => `<div class="dong-gon"><span>${thoat(x.d.ten)}</span>${chonRetail(x.i, '', true)}<span class="phai">${dinh(x.gia)}</span></div>`).join('')}
-    <div class="dong-gon" style="color:var(--mo);font-size:12.5px">Chọn đúng mặt hàng nếu có, hoặc thêm vào tab Retail rồi bấm ↻.</div></details>`;
+    ${moi.map(x => `<div class="dong-gon"><span>${thoat(x.d.ten)}</span><span class="phai">${dinh(x.gia)}</span></div>`).join('')}
+    <div class="dong-gon" style="color:var(--mo);font-size:12.5px">Nếu có trong Retail: bấm ← Sửa toa, gõ lại đúng tên (có gợi ý). Nếu là hàng mới: thêm vào tab Retail rồi bấm ↻.</div></details>`;
   if (giu.length) h += `<details class="gap"><summary>Không đổi (${giu.length})</summary>
     ${giu.map(x => `<div class="dong-gon"><span>${thoat(x.r.ten)}</span><span class="phai">${dinh(x.gia)}</span></div>`).join('')}</details>`;
   $('#ds-khac').innerHTML = h;
@@ -795,26 +771,10 @@ $('#man2').addEventListener('change', e => {
     const i = +el.dataset.chon;
     el.checked ? CHON.add(i) : CHON.delete(i);
     el.closest('.mon').classList.toggle('bo', !el.checked);
-    rung(8); capNhatThanh(); return;
-  }
-  if (el.dataset.retail !== undefined && el.value) {
-    const i = +el.dataset.retail;
-    DONG[i].chot = el.value; luuToa();
-    day(DONG[i].ten, el.value);
-    tinhLai(i);
+    rung(8); capNhatThanh();
   }
 });
-/* Nút "Đổi": mở ô chọn mặt hàng cho đúng dòng đó. Giá không sửa ở đây — sửa ở toa (← Sửa toa) để còn so tổng. */
-$('#man2').addEventListener('click', e => {
-  const b = e.target.closest('[data-doi]'); if (!b) return;
-  const i = +b.dataset.doi, x = KQ.find(k => k.i === i); if (!x) return;
-  const khung = b.closest('.ten-khoa');
-  khung.outerHTML = chonRetail(i, x.r.ten);
-  const sel = $(`#man2 [data-retail="${i}"]`);
-  sel.focus();
-  try { sel.showPicker && sel.showPicker(); } catch {}
-  rung(8);
-});
+/* Màn Kiểm tra chỉ để xem và tích chọn. Sai mặt hàng hay sai giá → ← Sửa toa (để còn so tổng trên toa). */
 
 async function diKiemTra() {
   const nut = $('#nut-chinh');
