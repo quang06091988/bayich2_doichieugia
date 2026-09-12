@@ -154,7 +154,11 @@ main{padding-top:14px}
 .cap{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
 .cu{color:var(--mo);text-decoration:line-through;font-size:12.5px}
 .moi-gia{font-weight:700;color:var(--do)}
-.gia .o{min-height:40px;padding:6px 10px;margin-top:2px}
+.ten-khoa{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px}
+.ten-khoa b{font-size:15px;line-height:1.3}
+.nut-doi{flex:none;border:1px solid var(--vien);background:#fff;color:var(--xanh);border-radius:8px;padding:4px 11px;min-height:32px;font-size:12.5px;font-weight:600;cursor:pointer;transition:transform .08s}
+.nut-doi:active{transform:scale(.95)}
+@media (hover:hover){.nut-doi:hover{background:#f4efe2}}
 .lai{grid-area:lai;font-size:12.5px}
 .lai b{font-variant-numeric:tabular-nums}
 .lai.du b{color:var(--luc)}.lai.hut b{color:var(--vang)}.lai.lo b{color:var(--do)}
@@ -180,6 +184,12 @@ details.gap[open] summary::before{transform:rotate(90deg)}
 .ds-kq{margin:16px 0 0;padding:0;list-style:none}
 .ds-kq li{display:flex;gap:10px;padding:10px 16px;border-top:1px solid #eee6d4;font-size:14px}
 .ds-kq li .phai{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ds-kq li > span:first-child{min-width:0}
+.ds-kq li.tieu-de{align-items:center;font-weight:700;font-size:13px;color:var(--mo);background:#faf6ea}
+.ds-kq .cham{width:10px;height:10px;border-radius:50%;flex:none}
+.ds-kq .cham.do{background:var(--do)}.ds-kq .cham.xanh{background:var(--luc)}
+.ds-kq .phai.hai-dong{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:13px}
+.ds-kq .phai i{font-style:normal;color:var(--mo)}
 .hang-nut{display:flex;flex-direction:column;gap:10px;padding:16px}
 .hang-nut a.nut{text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center}
 
@@ -225,7 +235,8 @@ details.gap[open] summary::before{transform:rotate(90deg)}
   .dong-dau span:nth-child(n+3){text-align:right}
   .dong{grid-template-columns:28px minmax(0,1fr) 92px 132px 124px 40px;grid-template-areas:"stt ten sl gia tt xoa";
     margin:0;padding:6px 16px;border:none;border-bottom:1px solid #f0e9d8;border-radius:0;background:none;align-items:start}
-  .dong.cuoi{background:none;border-style:solid}
+  .dong.cuoi{background:none;border:none;border-bottom:1px solid #f0e9d8}
+  .dong.cuoi .stt{opacity:.45}
   .dong .stt{display:block;grid-area:stt;padding-top:11px;font-size:12.5px;color:var(--mo);text-align:right}
   .o-so span,.thanh-tien span{display:none}
   .thanh-tien{align-self:start;padding:11px 0 0}
@@ -697,7 +708,7 @@ function doiChieu() {
     if (nguong && Math.abs(nhay) * 100 >= nguong) ly.push(`Giá ${nhay > 0 ? 'tăng' : 'giảm'} ${Math.round(Math.abs(nhay) * 100)}% so với lần trước`);
     if (daGap[r.ten] !== undefined && trangThai !== 'giu') ly.push('Trùng mặt hàng với dòng khác — chỉ ghi được 1 dòng');
     if (daGap[r.ten] === undefined) daGap[r.ten] = i;
-    return { d, i, gia, r, gnl, glt, trangThai, lai: gnl ? glt / gnl - 1 : 0, ly };
+    return { d, i, gia, r, gnl, glt, trangThai, lai: gnl ? glt / gnl - 1 : 0, ly, ngo: !!k.ngo };
   });
 }
 function chonMacDinh() { CHON = new Set(KQ.filter(x => ghiDuoc(x) && !x.ly.length).map(x => x.i)); }
@@ -724,8 +735,9 @@ function htmlMon(x) {
   const chuLai = x.lai <= 0 ? 'Lỗ' : x.lai < ln - 0.005 ? 'Hụt lãi' : 'Lãi thực';
   return `<div class="mon ${x.trangThai}${x.ly.length ? ' can-xem' : ''}${chon ? '' : ' bo'}" data-i="${i}">
     <label class="tich"><input type="checkbox" data-chon="${i}" ${chon ? 'checked' : ''} aria-label="Ghi ${thoat(r.ten)}"><span></span></label>
-    <div class="mon-ten">${chonRetail(i, r.ten)}<span class="toa-ghi">Toa: ${thoat(d.ten)} · ${thoat(d.sl || '?')} × ${dinh(x.gia)}</span></div>
-    <div class="gia"><span class="nhan-o">Giá nhập sỉ <span class="cu">${dinh(r.giaNhapSi)}</span></span><input class="o so" data-gia="${i}" value="${dinh(x.gia)}" inputmode="numeric" aria-label="Giá nhập sỉ mới"></div>
+    <div class="mon-ten">${x.ngo ? chonRetail(i, r.ten)   /* khớp chưa chắc → mở sẵn ô chọn */
+      : `<div class="ten-khoa"><b>${thoat(r.ten)}</b><button class="nut-doi" data-doi="${i}" aria-label="Chọn mặt hàng Retail khác cho dòng này">Đổi</button></div>`}<span class="toa-ghi">Toa: ${thoat(d.ten)} · ${thoat(d.sl || '?')} × ${dinh(x.gia)}</span></div>
+    <div class="gia"><span class="nhan-o">Giá nhập sỉ</span>${capGia(r.giaNhapSi, x.gia)}</div>
     <div class="tron"><span class="nhan-o">Giá làm tròn</span>${capGia(r.giaLamTron, x.glt)}</div>
     <div class="lai ${lop}"><span class="nhan-o" style="display:inline">${chuLai} </span><b>${phanTram(x.lai)}</b></div>
     <span class="chip the-kl ${x.trangThai}">${x.trangThai === 'do' ? 'Đổi giá bán' : 'Chỉ đổi giá nhập'}</span>
@@ -767,16 +779,20 @@ $('#man2').addEventListener('change', e => {
     const i = +el.dataset.retail;
     DONG[i].chot = el.value; luuToa();
     day(DONG[i].ten, el.value);
-    tinhLai(i); return;
-  }
-  if (el.dataset.gia !== undefined) {
-    const i = +el.dataset.gia, g = doSo(el.value);
-    if (g > 0) { DONG[i].donGia = String(g); luuToa(); }
     tinhLai(i);
   }
 });
-$('#man2').addEventListener('focusin', e => { if (e.target.dataset.gia !== undefined) e.target.value = String(doSo(e.target.value) || ''); });
-$('#man2').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.gia !== undefined) { e.preventDefault(); e.target.blur(); } });
+/* Nút "Đổi": mở ô chọn mặt hàng cho đúng dòng đó. Giá không sửa ở đây — sửa ở toa (← Sửa toa) để còn so tổng. */
+$('#man2').addEventListener('click', e => {
+  const b = e.target.closest('[data-doi]'); if (!b) return;
+  const i = +b.dataset.doi, x = KQ.find(k => k.i === i); if (!x) return;
+  const khung = b.closest('.ten-khoa');
+  khung.outerHTML = chonRetail(i, x.r.ten);
+  const sel = $(`#man2 [data-retail="${i}"]`);
+  sel.focus();
+  try { sel.showPicker && sel.showPicker(); } catch {}
+  rung(8);
+});
 
 async function diKiemTra() {
   const nut = $('#nut-chinh');
@@ -826,7 +842,7 @@ async function xacMinhSauLoi(gui, tronTruoc, loiGoc) {
   const theo = new Map(j.retail.map(x => [boDau(x.ten), x]));
   const vao = gui.filter(g => theo.get(boDau(g.ten))?.giaNhapSi === g.giaNhapSi);
   if (vao.length === gui.length) {
-    const ketQua = vao.map(g => { const x = theo.get(boDau(g.ten)), t = tronTruoc.get(g.ten); return { ten: x.ten, tronTruoc: t, tronSau: x.giaLamTron, doi: x.giaLamTron !== t }; });
+    const ketQua = vao.map(g => { const x = theo.get(boDau(g.ten)), t = tronTruoc.get(g.ten); return { ten: x.ten, giaNhapSiCu: g.giaNhapSiCu, giaNhapSi: g.giaNhapSi, tronTruoc: t, tronSau: x.giaLamTron, doi: x.giaLamTron !== t }; });
     return { ok: true, xacMinh: true, ketQua, boQua: [], khoiTao: j, soDo: ketQua.filter(k => k.doi).length, soXanh: ketQua.filter(k => !k.doi).length };
   }
   const e = new Error(`${loiGoc.message} Đã kiểm tra lại Sheet: ${vao.length}/${gui.length} dòng đã được ghi.`);
@@ -836,17 +852,26 @@ async function xacMinhSauLoi(gui, tronTruoc, loiGoc) {
 }
 
 /* ══════════════════ MÀN 3 — xong ══════════════════ */
+/* Liệt kê MỌI dòng đã ghi, chia 2 nhóm. Nút Đồng bộ luôn là nút chính: kể cả khi chỉ đổi giá nhập,
+   Giá Sỉ bên Vân Bao Bì (= Giá Nhập Lẻ) vẫn đổi theo. */
 function veKetQua(r) {
-  const doi = r.ketQua.filter(k => k.doi), link = DL?.cauHinh?.linkDongBo;
+  const link = DL?.cauHinh?.linkDongBo;
+  const nhom = (doi, tieuDe, lop) => {
+    const ds = r.ketQua.filter(k => !!k.doi === doi);
+    if (!ds.length) return '';
+    return `<li class="tieu-de"><span class="cham ${lop}"></span>${tieuDe} (${ds.length})</li>` + ds.map(k => `<li><span>${thoat(k.ten)}</span><span class="phai hai-dong">
+      <span>Giá nhập sỉ <span class="cu">${dinh(k.giaNhapSiCu)}</span> → <b>${dinh(k.giaNhapSi)}</b></span>
+      <span>Giá làm tròn ${doi ? `<span class="cu">${dinh(k.tronTruoc)}</span> → <b>${dinh(k.tronSau)}</b>` : `${dinh(k.tronSau)} <i>(giữ nguyên)</i>`}</span></span></li>`).join('');
+  };
   $('#ket-qua').innerHTML = `
     <div class="xong"><div class="dau-tich">✓</div><h2>Đã ghi ${r.ketQua.length} dòng vào Retail</h2>
       <p>${r.soDo} đổi giá bán · ${r.soXanh} chỉ đổi giá nhập</p>
       ${r.xacMinh ? '<p style="font-size:12.5px">Google báo lỗi đường truyền nhưng đã kiểm tra lại: dữ liệu đã vào Sheet.</p>' : ''}</div>
-    ${doi.length ? `<ul class="ds-kq"><li style="font-weight:600;border-top:none">Giá làm tròn đã đổi</li>${doi.map(k => `<li><span>${thoat(k.ten)}</span><span class="phai"><span class="cu">${dinh(k.tronTruoc)}</span> → <b>${dinh(k.tronSau)}</b></span></li>`).join('')}</ul>` : ''}
+    <ul class="ds-kq">${nhom(true, 'Đổi giá bán', 'do')}${nhom(false, 'Chỉ đổi giá nhập', 'xanh')}</ul>
     ${r.boQua?.length ? `<div style="padding:12px 16px 0"><div class="canh"><b>Bỏ qua ${r.boQua.length} dòng</b><ul>${r.boQua.map(x => `<li>${thoat(x.ten)}: ${thoat(x.lyDo)}</li>`).join('')}</ul></div></div>` : ''}
     <div class="hang-nut">
-      ${link ? `<a class="nut ${doi.length ? '' : 'phu'}" href="${thoat(link)}">Đồng bộ sang Menu & Vân Bao Bì →</a>` : ''}
-      <button class="nut ${link && doi.length ? 'phu' : ''}" id="nut-toa-moi">Nhập toa mới</button>
+      ${link ? `<a class="nut" href="${thoat(link)}">Đồng bộ sang Menu & Vân Bao Bì →</a>` : ''}
+      <button class="nut ${link ? 'phu' : ''}" id="nut-toa-moi">Nhập toa mới</button>
     </div>`;
 }
 $('#ket-qua').addEventListener('click', e => { if (e.target.closest('#nut-toa-moi')) veMan1(); });
