@@ -396,18 +396,32 @@ function chuanDoan(t) {
   if (s.includes('accounts.google.com') || s.includes('servicelogin') || s.includes('sign in')) return 'Google đang bắt đăng nhập — bản triển khai chưa mở cho "Bất kỳ ai".';
   if (s.includes('you need permission') || s.includes('không có quyền')) return 'Apps Script chưa đủ quyền chạy.';
   if (s.includes('script function not found')) return 'Bản triển khai đang chạy code cũ — cần tạo phiên bản mới.';
+  if (s.includes('không thể mở tệp') || s.includes('unable to open the file')) return 'Google tạm thời không phản hồi (lỗi phía Google).';
   if (s.includes('<!doctype') || s.includes('<html')) return 'Apps Script trả về trang lỗi thay vì dữ liệu.';
   return '';
 }
+/* Google thỉnh thoảng trả trang "không thể mở tệp" (404) ở bước chuyển hướng dù script ĐÃ CHẠY XONG.
+   Đọc thì thử lại; ghi thì KHÔNG gửi lại mà đọc Sheet để xác minh (xem xacMinhSauLoi). */
+class LoiDuongTruyen extends Error {}
+const ngu = ms => new Promise(r => setTimeout(r, ms));
 async function docJSON(r) {
   const t = await r.text();
   try { return JSON.parse(t); }
-  catch { throw new Error(chuanDoan(t) || 'Apps Script trả về nội dung lạ.'); }
+  catch { throw new LoiDuongTruyen(chuanDoan(t) || 'Apps Script trả về nội dung lạ.'); }
+}
+async function layDuLieu() {
+  let loi;
+  for (let lan = 0; lan < 3; lan++) {
+    if (lan) await ngu(lan * 800);
+    try { return await docJSON(await fetch(API + '?viec=khoiTao&t=' + Date.now())); }
+    catch (e) { loi = e instanceof LoiDuongTruyen ? e : new LoiDuongTruyen('Mất kết nối tới Apps Script. Kiểm tra mạng rồi thử lại.'); }
+  }
+  throw loi;
 }
 async function goi(payload) {
   let r;
   try { r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); }
-  catch { throw new Error('Mất kết nối tới Apps Script. Kiểm tra mạng rồi thử lại.'); }
+  catch { throw new LoiDuongTruyen('Mất kết nối tới Apps Script.'); }
   return docJSON(r);
 }
 
@@ -426,8 +440,7 @@ async function napDuLieu() {
   const lan = ++lanTai, nut = $('#nut-tai');
   nut.classList.add('quay');
   try {
-    const r = await fetch(API + '?viec=khoiTao&t=' + Date.now());
-    const j = await docJSON(r);
+    const j = await layDuLieu();
     if (!j.ok) throw new Error(j.loi || 'Apps Script báo lỗi.');
     if (!Array.isArray(j.retail) || !j.cauHinh) throw new Error('Apps Script đang chạy bản cũ — cần deploy phiên bản mới.');
     if (lan !== lanTai) return false;
@@ -442,7 +455,7 @@ async function napDuLieu() {
   } catch (e) {
     if (lan !== lanTai) return false;
     $('#tt').textContent = 'Chưa tải được';
-    $('#tb-loi').innerHTML = `<div class="canh loi"><b>Không tải được giá từ Sheet</b>${thoat(e.message)}<br><button class="nut" data-thu-lai>Thử lại</button></div>`;
+    $('#tb-loi').innerHTML = `<div class="canh loi"><b>Không tải được giá từ Sheet</b>${thoat(e.message)}${e instanceof LoiDuongTruyen ? ' Đã tự thử 3 lần — đợi ít giây rồi bấm Thử lại.' : ''}<br><button class="nut" data-thu-lai>Thử lại</button></div>`;
     return false;
   } finally {
     if (lan === lanTai) nut.classList.remove('quay');
@@ -491,7 +504,8 @@ function day(viet, retail) {
   BD[k] = retail;
   const cu = (DL.bietDanh || []).find(b => boDau(b.viet) === k);
   if (cu) cu.retail = retail; else DL.bietDanh.push({ viet, retail });
-  goi({ hanhDong: 'hocBietDanh', viet, retail })
+  const gui = () => goi({ hanhDong: 'hocBietDanh', viet, retail });   // gửi lại vô hại: chỉ sửa đúng dòng đó
+  gui().catch(e => e instanceof LoiDuongTruyen ? ngu(800).then(gui) : Promise.reject(e))
     .then(r => bao(r.ok ? `Đã nhớ: “${viet}” = ${retail}` : 'Chưa lưu được biệt danh: ' + r.loi))
     .catch(() => bao('Chưa lưu được biệt danh — mất mạng?'));
 }
@@ -779,8 +793,12 @@ async function ghi() {
   const ds = KQ.filter(x => ghiDuoc(x) && CHON.has(x.i));
   if (!ds.length || dangGhi) return;
   dangGhi = true; capNhatThanh();
+  const gui = ds.map(x => ({ ten: x.r.ten, giaNhapSi: x.gia, giaNhapSiCu: x.r.giaNhapSi }));
+  const tronTruoc = new Map(ds.map(x => [x.r.ten, x.r.giaLamTron]));
   try {
-    const r = await goi({ hanhDong: 'capNhat', retail: ds.map(x => ({ ten: x.r.ten, giaNhapSi: x.gia, giaNhapSiCu: x.r.giaNhapSi })) });
+    let r;
+    try { r = await goi({ hanhDong: 'capNhat', retail: gui }); }
+    catch (e) { if (!(e instanceof LoiDuongTruyen)) throw e; r = await xacMinhSauLoi(gui, tronTruoc, e); }
     if (r.khoiTao?.ok) { DL = r.khoiTao; lamMoiBD(); veCanhBaoDL(); }
     if (!r.ok) { const e = new Error(r.loi || 'Apps Script báo lỗi.'); e.boQua = r.boQua; throw e; }
     rung([20, 50, 20]);
@@ -788,6 +806,7 @@ async function ghi() {
     DONG = []; $('#tong-toa').value = ''; xoaToaLuu(); veToa();
     history.replaceState({ man: 3 }, ''); sangMan(3, false);
   } catch (e) {
+    if (e.khoiTao) { DL = e.khoiTao; lamMoiBD(); veCanhBaoDL(); tinhLai(); }   // dòng đã vào Sheet chuyển sang "Không đổi"
     const bq = (e.boQua || []).map(x => `<li>${thoat(x.ten)}: ${thoat(x.lyDo)}${x.trongSheet != null ? ` (Sheet đang là ${dinh(x.trongSheet)})` : ''}</li>`).join('');
     $('#tb-ghi').innerHTML = `<div class="canh loi"><b>Chưa ghi được</b>${thoat(e.message)}${bq ? `<ul>${bq}</ul>` : ''}<br><button class="nut" data-so-lai>Lấy giá mới & so lại</button></div>`;
     $('#tb-ghi').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -796,16 +815,37 @@ async function ghi() {
   }
 }
 
+/* Lệnh ghi đã gửi nhưng không nhận được trả lời hợp lệ: đọc lại Sheet xem đã ghi thật chưa.
+   KHÔNG gửi lại lệnh ghi — lỗi 404 của Google thường xảy ra SAU khi script đã ghi xong. */
+async function xacMinhSauLoi(gui, tronTruoc, loiGoc) {
+  $('#nut-chinh').textContent = 'Đang kiểm tra lại Sheet…';
+  let j;
+  try { j = await layDuLieu(); } catch {}
+  if (!j?.ok || !Array.isArray(j.retail))
+    throw new Error(loiGoc.message + ' Chưa kiểm tra lại được Sheet — bấm nút dưới để biết đã ghi chưa, đừng ghi lại ngay.');
+  const theo = new Map(j.retail.map(x => [boDau(x.ten), x]));
+  const vao = gui.filter(g => theo.get(boDau(g.ten))?.giaNhapSi === g.giaNhapSi);
+  if (vao.length === gui.length) {
+    const ketQua = vao.map(g => { const x = theo.get(boDau(g.ten)), t = tronTruoc.get(g.ten); return { ten: x.ten, tronTruoc: t, tronSau: x.giaLamTron, doi: x.giaLamTron !== t }; });
+    return { ok: true, xacMinh: true, ketQua, boQua: [], khoiTao: j, soDo: ketQua.filter(k => k.doi).length, soXanh: ketQua.filter(k => !k.doi).length };
+  }
+  const e = new Error(`${loiGoc.message} Đã kiểm tra lại Sheet: ${vao.length}/${gui.length} dòng đã được ghi.`);
+  e.khoiTao = j;
+  e.boQua = gui.filter(g => !vao.includes(g)).map(g => ({ ten: g.ten, lyDo: 'Chưa vào Sheet — tích lại và ghi lần nữa' }));
+  throw e;
+}
+
 /* ══════════════════ MÀN 3 — xong ══════════════════ */
 function veKetQua(r) {
   const doi = r.ketQua.filter(k => k.doi), link = DL?.cauHinh?.linkDongBo;
   $('#ket-qua').innerHTML = `
     <div class="xong"><div class="dau-tich">✓</div><h2>Đã ghi ${r.ketQua.length} dòng vào Retail</h2>
-      <p>${r.soDo} đổi giá bán · ${r.soXanh} chỉ đổi giá nhập</p></div>
+      <p>${r.soDo} đổi giá bán · ${r.soXanh} chỉ đổi giá nhập</p>
+      ${r.xacMinh ? '<p style="font-size:12.5px">Google báo lỗi đường truyền nhưng đã kiểm tra lại: dữ liệu đã vào Sheet.</p>' : ''}</div>
     ${doi.length ? `<ul class="ds-kq"><li style="font-weight:600;border-top:none">Giá làm tròn đã đổi</li>${doi.map(k => `<li><span>${thoat(k.ten)}</span><span class="phai"><span class="cu">${dinh(k.tronTruoc)}</span> → <b>${dinh(k.tronSau)}</b></span></li>`).join('')}</ul>` : ''}
     ${r.boQua?.length ? `<div style="padding:12px 16px 0"><div class="canh"><b>Bỏ qua ${r.boQua.length} dòng</b><ul>${r.boQua.map(x => `<li>${thoat(x.ten)}: ${thoat(x.lyDo)}</li>`).join('')}</ul></div></div>` : ''}
     <div class="hang-nut">
-      ${link && doi.length ? `<a class="nut" href="${thoat(link)}">Đồng bộ sang Menu & Vân Bao Bì →</a>` : ''}
+      ${link ? `<a class="nut ${doi.length ? '' : 'phu'}" href="${thoat(link)}">Đồng bộ sang Menu & Vân Bao Bì →</a>` : ''}
       <button class="nut ${link && doi.length ? 'phu' : ''}" id="nut-toa-moi">Nhập toa mới</button>
     </div>`;
 }
