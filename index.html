@@ -420,12 +420,19 @@ async function docJSON(r) {
   try { return JSON.parse(t); }
   catch { throw new LoiDuongTruyen(chuanDoan(t) || 'Apps Script trả về nội dung lạ.'); }
 }
-async function layDuLieu() {
+/* Đợt trục trặc của Google có thể kéo dài vài giây: thử THU.lan lần, nghỉ tăng dần (1s, 2s, 3s, 4s).
+   JSON sai dạng (phản hồi lạc, vd kiểu ping) cũng tính là thất bại. Hết lượt thì tự thử lại sau tuThuLaiMs. */
+const THU = { lan: 5, nghiMs: 1000, tuThuLaiMs: 15000, toiDaTuThu: 20 };
+async function layDuLieu(baoTienDo) {
   let loi;
-  for (let lan = 0; lan < 3; lan++) {
-    if (lan) await ngu(lan * 800);
-    try { return await docJSON(await fetch(API + '?viec=khoiTao&t=' + Date.now())); }
-    catch (e) { loi = e instanceof LoiDuongTruyen ? e : new LoiDuongTruyen('Mất kết nối tới Apps Script. Kiểm tra mạng rồi thử lại.'); }
+  for (let lan = 1; lan <= THU.lan; lan++) {
+    if (lan > 1) { baoTienDo && baoTienDo(lan); await ngu((lan - 1) * THU.nghiMs); }
+    try {
+      const j = await docJSON(await fetch(API + '?viec=khoiTao&t=' + Date.now()));
+      if (j && j.ok === false) return j;                          // lỗi thật từ máy chủ — không thử lại
+      if (j && Array.isArray(j.retail) && j.cauHinh) return j;
+      loi = new LoiDuongTruyen('Google trả về dữ liệu không đúng dạng.');
+    } catch (e) { loi = e instanceof LoiDuongTruyen ? e : new LoiDuongTruyen('Mất kết nối tới Apps Script. Kiểm tra mạng rồi thử lại.'); }
   }
   throw loi;
 }
@@ -447,15 +454,16 @@ let man = 1, dangGhi = false, lanTai = 0;
 function lamMoiBD() { BD = {}; (DL?.bietDanh || []).forEach(b => { BD[boDau(b.viet)] = b.retail; }); }
 const timRetail = ten => DL?.retail.find(r => boDau(r.ten) === boDau(ten));
 
+let hgTuThu = null, soLanTuThu = 0;
 async function napDuLieu() {
   const lan = ++lanTai, nut = $('#nut-tai');
   nut.classList.add('quay');
+  clearInterval(hgTuThu);
   try {
-    const j = await layDuLieu();
+    const j = await layDuLieu(n => { if (lan === lanTai) $('#tt').textContent = `Google chậm — thử lại ${n}/${THU.lan}…`; });
     if (!j.ok) throw new Error(j.loi || 'Apps Script báo lỗi.');
-    if (!Array.isArray(j.retail) || !j.cauHinh) throw new Error('Apps Script đang chạy bản cũ — cần deploy phiên bản mới.');
     if (lan !== lanTai) return false;
-    DL = j; lamMoiBD();
+    DL = j; lamMoiBD(); soLanTuThu = 0;
     $('#tb-loi').innerHTML = '';
     $('#tt').textContent = `${j.retail.length} món · ${new Date(j.thoiGian).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
     $('#tt').title = 'Tab Retail có ' + j.retail.length + ' mặt hàng — lấy lúc ' + new Date(j.thoiGian).toLocaleTimeString('vi-VN');
@@ -466,11 +474,25 @@ async function napDuLieu() {
   } catch (e) {
     if (lan !== lanTai) return false;
     $('#tt').textContent = 'Chưa tải được';
-    $('#tb-loi').innerHTML = `<div class="canh loi"><b>Không tải được giá từ Sheet</b>${thoat(e.message)}${e instanceof LoiDuongTruyen ? ' Đã tự thử 3 lần — đợi ít giây rồi bấm Thử lại.' : ''}<br><button class="nut" data-thu-lai>Thử lại</button></div>`;
+    if (e instanceof LoiDuongTruyen && soLanTuThu < THU.toiDaTuThu) henTuThuLai(e.message);
+    else $('#tb-loi').innerHTML = `<div class="canh loi"><b>Không tải được giá từ Sheet</b>${thoat(e.message)}<br><button class="nut" data-thu-lai>Thử lại</button></div>`;
     return false;
   } finally {
     if (lan === lanTai) nut.classList.remove('quay');
   }
+}
+/* Google đang trục trặc: đếm ngược rồi tự tải lại (tạm dừng khi tab bị ẩn). Trong lúc chờ vẫn gõ toa bình thường. */
+function henTuThuLai(lyDo) {
+  soLanTuThu++;
+  let con = Math.round(THU.tuThuLaiMs / 1000);
+  const ve = () => { $('#tb-loi').innerHTML = `<div class="canh"><b>Google đang trục trặc — tự thử lại sau ${con}s</b>${thoat(lyDo)} Bạn vẫn gõ toa bình thường.<br><button class="nut" data-thu-lai>Thử lại ngay</button></div>`; };
+  ve();
+  clearInterval(hgTuThu);
+  hgTuThu = setInterval(() => {
+    if (document.hidden) return;
+    if (--con <= 0) { clearInterval(hgTuThu); napDuLieu().then(ok => { if (ok) { bao('Đã tải được giá'); chuyenBietDanhCu(); } }); }
+    else ve();
+  }, 1000);
 }
 function veCanhBaoDL() {
   const c = DL?.canhBao || [];
@@ -811,24 +833,33 @@ async function ghi() {
   dangGhi = true; capNhatThanh();
   const gui = ds.map(x => ({ ten: x.r.ten, giaNhapSi: x.gia, giaNhapSiCu: x.r.giaNhapSi }));
   const tronTruoc = new Map(ds.map(x => [x.r.ten, x.r.giaLamTron]));
+  let r;
   try {
-    let r;
-    try { r = await goi({ hanhDong: 'capNhat', retail: gui }); }
-    catch (e) { if (!(e instanceof LoiDuongTruyen)) throw e; r = await xacMinhSauLoi(gui, tronTruoc, e); }
+    try {
+      r = await goi({ hanhDong: 'capNhat', retail: gui });
+      /* ok mà không có danh sách kết quả = phản hồi lạc, không phải của lệnh ghi này → xác minh như lỗi đường truyền */
+      if (!r || typeof r !== 'object' || (r.ok && !Array.isArray(r.ketQua))) throw new LoiDuongTruyen('Google trả về phản hồi không đúng dạng.');
+    } catch (e) { if (!(e instanceof LoiDuongTruyen)) throw e; r = await xacMinhSauLoi(gui, tronTruoc, e); }
     if (r.khoiTao?.ok) { DL = r.khoiTao; lamMoiBD(); veCanhBaoDL(); }
     if (!r.ok) { const e = new Error(r.loi || 'Apps Script báo lỗi.'); e.boQua = r.boQua; throw e; }
-    rung([20, 50, 20]);
-    veKetQua(r);
-    DONG = []; $('#tong-toa').value = ''; xoaToaLuu(); veToa();
-    history.replaceState({ man: 3 }, ''); sangMan(3, false);
   } catch (e) {
     if (e.khoiTao) { DL = e.khoiTao; lamMoiBD(); veCanhBaoDL(); tinhLai(); }   // dòng đã vào Sheet chuyển sang "Không đổi"
     const bq = (e.boQua || []).map(x => `<li>${thoat(x.ten)}: ${thoat(x.lyDo)}${x.trongSheet != null ? ` (Sheet đang là ${dinh(x.trongSheet)})` : ''}</li>`).join('');
     $('#tb-ghi').innerHTML = `<div class="canh loi"><b>Chưa ghi được</b>${thoat(e.message)}${bq ? `<ul>${bq}</ul>` : ''}<br><button class="nut" data-so-lai>Lấy giá mới & so lại</button></div>`;
     $('#tb-ghi').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
   } finally {
     dangGhi = false; capNhatThanh();
   }
+  /* Đến đây là ĐÃ ghi xong — lỗi khi vẽ màn kết quả không bao giờ được báo thành "chưa ghi" */
+  DONG = []; $('#tong-toa').value = ''; xoaToaLuu();
+  try { rung([20, 50, 20]); veKetQua(r); }
+  catch (e) {
+    $('#ket-qua').innerHTML = `<div class="xong"><div class="dau-tich">✓</div><h2>Đã ghi vào Retail</h2><p>Không hiển thị được chi tiết (${thoat(e.message)}). Bấm ↻ để xem giá mới.</p></div>
+      <div class="hang-nut"><button class="nut phu" id="nut-toa-moi">Nhập toa mới</button></div>`;
+  }
+  veToa();
+  history.replaceState({ man: 3 }, ''); sangMan(3, false);
 }
 
 /* Lệnh ghi đã gửi nhưng không nhận được trả lời hợp lệ: đọc lại Sheet xem đã ghi thật chưa.
@@ -857,14 +888,14 @@ async function xacMinhSauLoi(gui, tronTruoc, loiGoc) {
 function veKetQua(r) {
   const link = DL?.cauHinh?.linkDongBo;
   const nhom = (doi, tieuDe, lop) => {
-    const ds = r.ketQua.filter(k => !!k.doi === doi);
+    const ds = (r.ketQua || []).filter(k => !!k.doi === doi);
     if (!ds.length) return '';
     return `<li class="tieu-de"><span class="cham ${lop}"></span>${tieuDe} (${ds.length})</li>` + ds.map(k => `<li><span>${thoat(k.ten)}</span><span class="phai hai-dong">
       <span>Giá nhập sỉ <span class="cu">${dinh(k.giaNhapSiCu)}</span> → <b>${dinh(k.giaNhapSi)}</b></span>
       <span>Giá làm tròn ${doi ? `<span class="cu">${dinh(k.tronTruoc)}</span> → <b>${dinh(k.tronSau)}</b>` : `${dinh(k.tronSau)} <i>(giữ nguyên)</i>`}</span></span></li>`).join('');
   };
   $('#ket-qua').innerHTML = `
-    <div class="xong"><div class="dau-tich">✓</div><h2>Đã ghi ${r.ketQua.length} dòng vào Retail</h2>
+    <div class="xong"><div class="dau-tich">✓</div><h2>Đã ghi ${(r.ketQua || []).length} dòng vào Retail</h2>
       <p>${r.soDo} đổi giá bán · ${r.soXanh} chỉ đổi giá nhập</p>
       ${r.xacMinh ? '<p style="font-size:12.5px">Google báo lỗi đường truyền nhưng đã kiểm tra lại: dữ liệu đã vào Sheet.</p>' : ''}</div>
     <ul class="ds-kq">${nhom(true, 'Đổi giá bán', 'do')}${nhom(false, 'Chỉ đổi giá nhập', 'xanh')}</ul>
